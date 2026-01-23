@@ -6,6 +6,7 @@ import sys
 import os
 from pathlib import Path
 
+
 def find_grpc_cpp_plugin(cli_value: str | None) -> Path:
     """
     grpc_cpp_plugin path resolution priority:
@@ -47,6 +48,7 @@ def find_grpc_cpp_plugin(cli_value: str | None) -> Path:
         + "\nInstall it or pass --grpc-plugin / set GRPC_CPP_PLUGIN."
     )
 
+
 def allocate_build_dir(base: Path) -> Path:
     if not base.exists():
         return base
@@ -56,6 +58,39 @@ def allocate_build_dir(base: Path) -> Path:
         if not cand.exists():
             return cand
         i += 1
+
+
+def build_protoc_cmd(
+    *,
+    includes: list[str],
+    proto_file: Path,
+    desc_out: Path,
+    gen_dir: Path,
+    grpc_plugin_path: Path,
+) -> list[str]:
+
+    if not proto_file.exists():
+        raise FileNotFoundError(f"proto_file not found: {proto_file}")
+
+    # Ensure output dirs exist (caller can also do this; safe either way)
+    desc_out.parent.mkdir(parents=True, exist_ok=True)
+    gen_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd: list[str] = ["protoc"]
+
+    for inc in includes:
+        cmd.append(f"-I{inc}")
+
+    cmd += [
+        "--include_imports",
+        f"--descriptor_set_out={desc_out}",
+        f"--cpp_out={gen_dir}",
+        f"--grpc_out={gen_dir}",
+        f"--plugin=protoc-gen-grpc={grpc_plugin_path}",
+        str(proto_file),
+    ]
+    return cmd
+
 
 def run(args=None):
     args = parse_args(args)
@@ -73,23 +108,16 @@ def run(args=None):
 
     grpc_plugin_path = find_grpc_cpp_plugin(args.grpc_plugin)
 
-    PROTO_ROOT = Path("../proto")
-    TSURUGI_PROTO = Path.home() / "git" / "tsurugi-udf" / "proto"
-
-    cmd = [
-        "protoc",
-        f"-I{PROTO_ROOT}",
-        f"-I{TSURUGI_PROTO}",
-        "--include_imports",
-        f"--descriptor_set_out={OUT}/{name}.desc.pb",
-        f"--cpp_out={GEN}",
-        f"--grpc_out={GEN}",
-        f"--plugin=protoc-gen-grpc={grpc_plugin_path}",
-        str(proto_file),
-    ]
-
-    print(" ".join(cmd))
+    cmd = build_protoc_cmd(
+        includes=args.include,
+        proto_file=proto_file,
+        desc_out=OUT / f"{name}.desc.pb",
+        gen_dir=GEN,
+        grpc_plugin_path=grpc_plugin_path,
+    )
+    print(" ".join(map(str, cmd)))
     subprocess.run(cmd, check=True)
+
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser(description="protoc wrapper")
@@ -107,10 +135,11 @@ def parse_args(args=None):
         help="Path to grpc_cpp_plugin (default: auto-detect, fallback /usr/bin/grpc_cpp_plugin)",
     )
     parser.add_argument(
-        "-I", "--include",
+        "-I",
+        "--include",
         action="append",
         default=[],
-        help="proto include path (can be specified multiple times)"
+        help="proto include path (can be specified multiple times)",
     )
     parser.add_argument(
         "--grpc-endpoint", default="dns:///localhost:50051", help="gRPC server endpoint"
@@ -127,8 +156,10 @@ def parse_args(args=None):
     )
     return parser.parse_args(args)
 
+
 def main():
     run(sys.argv[1:])
+
 
 if __name__ == "__main__":
     main()
