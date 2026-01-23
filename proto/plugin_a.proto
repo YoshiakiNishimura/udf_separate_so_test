@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package sample.plugin_a;
+
+import "data/company_data.proto";
+import "tsurugidb/udf/tsurugi_types.proto";
+
+message DecimalMessage {
+  tsurugidb.udf.Decimal value = 1;
+}
+
+service Rec {
+  rpc inc_decimal(DecimalMessage) returns (DecimalMessage);
+  rpc CD_name(sample.company.CompanyData) returns (sample.company.CompanyName);
+}

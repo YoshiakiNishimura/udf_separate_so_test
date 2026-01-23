@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package sample.company;
+
+import "data/a_data.proto";
+
+message CompanyData {
+  int32 company_id = 1;
+  string company_name = 2;
+  sample.company.a.AData a_data = 3;
+}
+
+message CompanyName {
+  string company_name = 1;
+}
+message CompanyId {
+  int32 company_id = 1;
+}
+
+service CD {
+  rpc CD_id (CompanyData) returns (CompanyId);
+}
