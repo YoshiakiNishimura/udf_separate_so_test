@@ -166,16 +166,20 @@ def allocate_build_dir(base: Path) -> Path:
 def build_protoc_cmd(
     *,
     includes: list[str],
-    proto_file: Path,
+    proto_files: list[Path],
     desc_out: Path,
     gen_dir: Path,
     grpc_plugin_path: Path,
 ) -> list[str]:
 
-    if not proto_file.exists():
-        raise FileNotFoundError(f"proto_file not found: {proto_file}")
+    if not proto_files:
+        raise ValueError("no proto_files specified")
 
-    # Ensure output dirs exist (caller can also do this; safe either way)
+    for p in proto_files:
+        if not p.exists():
+            raise FileNotFoundError(f"proto_file not found: {p}")
+
+    # Ensure output dirs exist
     desc_out.parent.mkdir(parents=True, exist_ok=True)
     gen_dir.mkdir(parents=True, exist_ok=True)
 
@@ -190,38 +194,22 @@ def build_protoc_cmd(
         f"--cpp_out={gen_dir}",
         f"--grpc_out={gen_dir}",
         f"--plugin=protoc-gen-grpc={grpc_plugin_path}",
-        str(proto_file),
     ]
-    return cmd
+    cmd += [str(p) for p in proto_files]
 
-def build_protoc_cmd_single(
-    *,
-    includes: list[str],
-    proto_file: str,          # logical name ("data/company_data.proto" etc.)
-    gen_dir: Path,
-    grpc_plugin_path: Path,
-) -> list[str]:
-    cmd: list[str] = ["protoc"]
-    for inc in includes:
-        cmd.append(f"-I{inc}")
-
-    cmd += [
-        f"--cpp_out={gen_dir}",
-        f"--grpc_out={gen_dir}",
-        f"--plugin=protoc-gen-grpc={grpc_plugin_path}",
-        proto_file,  # NOTE: logical name so protoc can resolve via -I
-    ]
     return cmd
 
 def run(argv=None):
     args = CliArgs.from_cli(argv)
 
-    proto_file = Path(args.proto_file)
-    if not proto_file.exists():
-        raise SystemExit(f"--proto-file not found: {proto_file}")
-    name = args.name or proto_file.stem
+    proto_files = [Path(p) for p in args.proto_files]
+    for p in proto_files:
+        if not p.exists():
+            raise SystemExit(f"--proto not found: {p}")
+
     build_base = allocate_build_dir(Path(args.build_dir))
     build_base.mkdir(parents=True, exist_ok=True)
+
     OUT = build_base / "desc"
     GEN = build_base / "gen"
     OUT.mkdir(parents=True, exist_ok=True)
@@ -231,60 +219,16 @@ def run(argv=None):
 
     cmd = build_protoc_cmd(
         includes=args.include,
-        proto_file=proto_file,
-        desc_out=OUT / f"{name}.desc.pb",
+        proto_files=proto_files,
+        desc_out=OUT / "all.desc.pb",
         gen_dir=GEN,
         grpc_plugin_path=grpc_plugin_path,
     )
-    print(" ".join(map(str, cmd)))
     subprocess.run(cmd, check=True)
 
-    desc_pb = OUT / f"{name}.desc.pb"
+    desc_pb = OUT / "all.desc.pb"
     fds = load_fds(desc_pb)
     graph_all = build_import_graph(fds)
-
-    root = proto_file.name
-    if root not in graph_all:
-        cands = [n for n in graph_all.keys() if n.endswith("/" + proto_file.name) or n.endswith(proto_file.name)]
-        if not cands:
-            raise SystemExit(f"root {root!r} not found in desc. available: {sorted(graph_all)[:20]} ...")
-        root = cands[0]
-
-    reach = reachable_from_root(graph_all, root)
-
-    graph = filter_graph(graph_all, keep_nodes=reach, exclude=True)
-
-    print("\n# === dependency graph (filtered) ===")
-    print(f"# root: {root}")
-    for n in sorted(graph.keys()):
-        deps = sorted(graph[n])
-        print(f"{n}:")
-        for d in deps:
-            print(f"  - {d}")
-
-    layers = topo_layers(graph)
-
-    print("\n# === topo layers (each layer can run in parallel) ===")
-    for i, layer in enumerate(layers):
-        print(f"layer[{i}] ({len(layer)} files)")
-        for n in layer:
-            print(f"  {n}")
-
-    root_logical = root
-    print("\n# === running protoc per proto (topo order) ===")
-    for i, layer in enumerate(layers):
-        print(f"# layer[{i}]")
-        for logical in layer:
-            if logical == root_logical:
-                continue
-            cmd2 = build_protoc_cmd_single(
-                includes=args.include,
-                proto_file=logical,
-                gen_dir=GEN,
-                grpc_plugin_path=grpc_plugin_path,
-            )
-            print(" ".join(map(str, cmd2)))
-            subprocess.run(cmd2, check=True)
 
 def main():
     run(sys.argv[1:])
