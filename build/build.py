@@ -8,6 +8,8 @@ from protoc import find_grpc_cpp_plugin, build_protoc_cmd, run_protoc
 from desc import load_fds, build_import_graph
 from compile_objects import build_objects_parallel
 from link_shared import build_shared_libs_layered_parallel
+from verify_links import verify_shared_libs
+
 
 def run(argv=None):
     args = CliArgs.from_cli(argv)
@@ -48,7 +50,6 @@ def run(argv=None):
     fds = load_fds(desc_pb)
     graph = build_import_graph(fds)
 
-
     target_protos = set(graph.keys())
 
     exclude_protos = set()
@@ -62,6 +63,13 @@ def run(argv=None):
         jobs=jobs,
     )
     print(f"# linked libs: {len(outputs)}")
+
+    verify_shared_libs(
+        outputs=outputs,
+        import_graph=graph,
+        require_origin_rpath=True,
+        forbid_path_needed=True,
+    )
 
 
 def main():
