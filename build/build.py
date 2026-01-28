@@ -7,7 +7,7 @@ from validate import validate_includes, validate_proto_files
 from protoc import find_grpc_cpp_plugin, build_protoc_cmd, run_protoc
 from desc import load_fds, build_import_graph
 from compile_objects import build_objects_parallel
-
+from link_shared import build_shared_libs_layered_parallel
 
 def run(argv=None):
     args = CliArgs.from_cli(argv)
@@ -21,9 +21,11 @@ def run(argv=None):
     OUT = build_dir / "desc"
     GEN = build_dir / "gen"
     OBJ = build_dir / "obj"
+    LIB = build_dir / "lib"
     OUT.mkdir(exist_ok=True)
     GEN.mkdir(exist_ok=True)
     OBJ.mkdir(exist_ok=True)
+    LIB.mkdir(exist_ok=True)
 
     grpc_plugin = find_grpc_cpp_plugin(args.grpc_plugin)
 
@@ -31,7 +33,7 @@ def run(argv=None):
     cmd = build_protoc_cmd(includes, proto_files, desc_pb, GEN, grpc_plugin)
     run_protoc(cmd)
 
-    # ---- compile .o in parallel (no link deps needed here) ----
+    # ---- compile .o in parallel ----
     include_dirs = [str(GEN)] + includes  # GEN is required for generated headers
     jobs = int(os.environ.get("JOBS", "0")) or None
 
@@ -43,11 +45,23 @@ def run(argv=None):
     )
     print(f"# compiled objects: {len(objs)}")
 
-    # ---- descriptor analysis (later used for .so link deps) ----
     fds = load_fds(desc_pb)
     graph = build_import_graph(fds)
 
-    print("Generated proto graph:", graph)
+
+    target_protos = set(graph.keys())
+
+    exclude_protos = set()
+
+    outputs = build_shared_libs_layered_parallel(
+        import_graph=graph,
+        target_protos=target_protos,
+        obj_dir=OBJ,
+        lib_dir=LIB,
+        exclude_protos=exclude_protos,
+        jobs=jobs,
+    )
+    print(f"# linked libs: {len(outputs)}")
 
 
 def main():
