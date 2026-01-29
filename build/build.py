@@ -9,6 +9,8 @@ from desc import load_fds, build_import_graph
 from compile_objects import build_objects_parallel
 from link_shared import build_shared_libs_layered_parallel
 from verify_links import verify_shared_libs
+from analyze_rpcs import dump_rpc_so_report
+from gen_ini import write_ini_files_for_rpc_libs
 
 
 def run(argv=None):
@@ -24,10 +26,13 @@ def run(argv=None):
     GEN = build_dir / "gen"
     OBJ = build_dir / "obj"
     LIB = build_dir / "lib"
+    INI = build_dir / "ini"
+
     OUT.mkdir(exist_ok=True)
     GEN.mkdir(exist_ok=True)
     OBJ.mkdir(exist_ok=True)
     LIB.mkdir(exist_ok=True)
+    INI.mkdir(exist_ok=True)
 
     grpc_plugin = find_grpc_cpp_plugin(args.grpc_plugin)
 
@@ -69,6 +74,16 @@ def run(argv=None):
         import_graph=graph,
         require_origin_rpath=True,
         forbid_path_needed=True,
+    )
+    dump_rpc_so_report(fds)
+
+    write_ini_files_for_rpc_libs(
+        fds,
+        lib_dir=LIB,
+        ini_dir=INI,
+        endpoint=args.grpc_endpoint,
+        secure=False,
+        enabled=True,
     )
 
 
