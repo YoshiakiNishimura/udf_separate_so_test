@@ -12,10 +12,15 @@ from verify_links import verify_shared_libs
 from analyze_rpcs import dump_rpc_so_report
 from gen_ini import write_ini_files_for_rpc_libs
 from gen_tpl import render_tpl_for_rpc_protos
+from common_static import compile_common_objects, archive_common_static
 
 
 def run(argv=None):
     args = CliArgs.from_cli(argv)
+
+    script_dir = Path(__file__).resolve().parent
+    templates_dir = script_dir / "templates"
+    tsurugi_udf_common_dir = script_dir / "common" / "tsurugi_udf_common"
 
     includes = validate_includes(list(args.include))
     proto_files = validate_proto_files([Path(p) for p in args.proto_files])
@@ -29,6 +34,7 @@ def run(argv=None):
     TPL = build_dir / "tpl"
     LIB = build_dir / "lib"
     INI = build_dir / "ini"
+    CMN = build_dir / "cmn"
 
     OUT.mkdir(exist_ok=True)
     GEN.mkdir(exist_ok=True)
@@ -36,6 +42,7 @@ def run(argv=None):
     TPL.mkdir(exist_ok=True)
     LIB.mkdir(exist_ok=True)
     INI.mkdir(exist_ok=True)
+    CMN.mkdir(exist_ok=True)
 
     grpc_plugin = find_grpc_cpp_plugin(args.grpc_plugin)
 
@@ -49,13 +56,34 @@ def run(argv=None):
 
     fds = load_fds(desc_pb)
     graph = build_import_graph(fds)
-    templates_dir = Path(__file__).resolve().parent / "templates"
     render_tpl_for_rpc_protos(
         fds=fds,
         templates_dir=templates_dir,
         tpl_dir=TPL,
         # fetch_add_name=fetch_add_name,
     )
+
+    common_srcs = [
+        tsurugi_udf_common_dir / "src" / "udf" / "descriptor_impl.cpp",
+        tsurugi_udf_common_dir / "src" / "udf" / "error_info.cpp",
+        tsurugi_udf_common_dir / "src" / "udf" / "generic_record_impl.cpp",
+    ]
+    common_include_dirs = [
+        str(tsurugi_udf_common_dir / "include" / "udf"),
+        str(GEN),
+        *includes,
+    ]
+    common_objs = compile_common_objects(
+        sources=common_srcs,
+        obj_dir=CMN / "obj",
+        include_dirs=common_include_dirs,
+    )
+    common_a = archive_common_static(
+        objs=common_objs,
+        out_dir=CMN,
+        name="libtsurugi_udf_common.a",
+    )
+    print(f"# built common static: {common_a}")
 
     objs = build_objects_parallel(
         gen_dir=GEN,
