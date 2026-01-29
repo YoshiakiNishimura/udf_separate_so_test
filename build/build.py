@@ -11,6 +11,7 @@ from link_shared import build_shared_libs_layered_parallel
 from verify_links import verify_shared_libs
 from analyze_rpcs import dump_rpc_so_report
 from gen_ini import write_ini_files_for_rpc_libs
+from gen_tpl import render_tpl_for_rpc_protos
 
 
 def run(argv=None):
@@ -25,12 +26,14 @@ def run(argv=None):
     OUT = build_dir / "desc"
     GEN = build_dir / "gen"
     OBJ = build_dir / "obj"
+    TPL = build_dir / "tpl"
     LIB = build_dir / "lib"
     INI = build_dir / "ini"
 
     OUT.mkdir(exist_ok=True)
     GEN.mkdir(exist_ok=True)
     OBJ.mkdir(exist_ok=True)
+    TPL.mkdir(exist_ok=True)
     LIB.mkdir(exist_ok=True)
     INI.mkdir(exist_ok=True)
 
@@ -43,6 +46,16 @@ def run(argv=None):
     # ---- compile .o in parallel ----
     include_dirs = [str(GEN)] + includes  # GEN is required for generated headers
     jobs = int(os.environ.get("JOBS", "0")) or None
+
+    fds = load_fds(desc_pb)
+    graph = build_import_graph(fds)
+    templates_dir = Path(__file__).resolve().parent / "templates"
+    render_tpl_for_rpc_protos(
+        fds=fds,
+        templates_dir=templates_dir,
+        tpl_dir=TPL,
+        # fetch_add_name=fetch_add_name,
+    )
 
     objs = build_objects_parallel(
         gen_dir=GEN,
