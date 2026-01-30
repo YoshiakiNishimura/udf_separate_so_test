@@ -13,6 +13,7 @@ from analyze_rpcs import dump_rpc_so_report
 from gen_ini import write_ini_files_for_rpc_libs
 from gen_tpl import render_tpl_for_rpc_protos
 from common_static import compile_common_objects, archive_common_static
+from compile_tpl import compile_tpl_objects_parallel
 
 
 def run(argv=None):
@@ -55,13 +56,29 @@ def run(argv=None):
 
     fds = load_fds(desc_pb)
     graph = build_import_graph(fds)
+
     render_tpl_for_rpc_protos(
         fds=fds,
         templates_dir=templates_dir,
         tpl_dir=TPL,
-        # fetch_add_name=fetch_add_name,
     )
 
+    tpl_subdirs = [str(p) for p in sorted(TPL.glob("*")) if p.is_dir()]
+    gen_subdirs = [str(p) for p in GEN.rglob("*") if p.is_dir()]
+    tpl_include_dirs = [
+        *tpl_subdirs,
+        str(tsurugi_udf_common_dir / "include" / "udf"),
+        str(GEN),
+        *gen_subdirs,
+        *includes,
+    ]
+    tpl_objs, tpl_objs_by_stem = compile_tpl_objects_parallel(
+        tpl_dir=TPL,
+        obj_dir=OBJ,
+        include_dirs=tpl_include_dirs,
+        jobs=jobs,
+    )
+    print(f"# compiled tpl objects: {len(tpl_objs)}")
     common_srcs = [
         tsurugi_udf_common_dir / "src" / "udf" / "descriptor_impl.cpp",
         tsurugi_udf_common_dir / "src" / "udf" / "error_info.cpp",
@@ -92,11 +109,7 @@ def run(argv=None):
     )
     print(f"# compiled objects: {len(objs)}")
 
-    fds = load_fds(desc_pb)
-    graph = build_import_graph(fds)
-
     target_protos = set(graph.keys())
-
     exclude_protos = set()
 
     outputs = build_shared_libs_layered_parallel(
@@ -106,6 +119,7 @@ def run(argv=None):
         lib_dir=LIB,
         exclude_protos=exclude_protos,
         jobs=jobs,
+        tpl_objs_by_stem=tpl_objs_by_stem,
         common_static=common_a,
     )
     print(f"# linked libs: {len(outputs)}")
@@ -116,6 +130,7 @@ def run(argv=None):
         require_origin_rpath=True,
         forbid_path_needed=True,
     )
+
     dump_rpc_so_report(fds)
 
     write_ini_files_for_rpc_libs(

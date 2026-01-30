@@ -22,29 +22,27 @@ def _has_service(fd) -> bool:
     return len(fd.service) > 0
 
 
-_TYPE_KIND_TO_FETCH = {
-    "double": "double",
-    "float": "float",
-    "int4": "int4",
-    "uint4": "uint4",
-    "int8": "int8",
-    "uint8": "uint8",
-    "boolean": "bool",
-    "string": "string",
-    "bytes": "string",
-    "sfixed4": "int4",
-    "sfixed8": "int8",
-    "sint4": "int4",
-    "sint8": "int8",
-    "fixed4": "uint4",
-    "fixed8": "uint8",
-    "message": "group",
-    "group": "group",
-}
-
-
-def _fallback_fetch_add_name(type_kind: str) -> str:
-    return _TYPE_KIND_TO_FETCH.get(type_kind, "/* no fetch, unknown type */")
+def _default_fetch_add_name(type_kind: str) -> str:
+    k = (type_kind or "").lower()
+    m = {
+        # ints
+        "int4": "int4",
+        "sfixed4": "int4",
+        "sint4": "int4",
+        "uint4": "uint4",
+        "fixed4": "uint4",
+        "int8": "int8",
+        "sfixed8": "int8",
+        "sint8": "int8",
+        "uint8": "uint8",
+        "fixed8": "uint8",
+        "float": "float",
+        "double": "double",
+        "boolean": "bool",
+        "string": "string",
+        "bytes": "string",
+    }
+    return m.get(k, "/* no fetch, unknown type */")
 
 
 def split_fds_by_proto_with_service(fds: FileDescriptorSet) -> Dict[str, List[dict]]:
@@ -99,18 +97,14 @@ def split_fds_by_proto_with_service(fds: FileDescriptorSet) -> Dict[str, List[di
                     }
                 ],
             }
-
         cols = []
         for idx, field in enumerate(d.field):
             kind = FIELD_TYPE.get(field.type, f"TYPE_{field.type}")
-
             oneof_idx = field.oneof_index if field.HasField("oneof_index") else None
             oneof_name = d.oneof_decl[oneof_idx].name if oneof_idx is not None else None
-
             nested = None
             if kind == "message":
                 nested = resolve_record(field.type_name)
-
             cols.append(
                 {
                     "index": idx,
@@ -121,7 +115,6 @@ def split_fds_by_proto_with_service(fds: FileDescriptorSet) -> Dict[str, List[di
                     "oneof_name": oneof_name,
                 }
             )
-
         return {"record_name": type_name.lstrip("."), "columns": cols}
 
     service_counter = 0
@@ -133,10 +126,8 @@ def split_fds_by_proto_with_service(fds: FileDescriptorSet) -> Dict[str, List[di
 
         pkg_name = fd.package
         services = []
-
         for svc in fd.service:
             functions = []
-
             for m in svc.method:
                 kind = "unary"
                 if m.client_streaming and m.server_streaming:
@@ -192,8 +183,7 @@ def render_tpl_for_rpc_protos(
         lstrip_blocks=True,
     )
     env.filters["camelcase"] = _camelcase
-
-    env.globals["fetch_add_name"] = fetch_add_name or _fallback_fetch_add_name
+    env.globals["fetch_add_name"] = fetch_add_name or _default_fetch_add_name
 
     file_to_packages = split_fds_by_proto_with_service(fds)
 
@@ -201,14 +191,14 @@ def render_tpl_for_rpc_protos(
 
     for proto_file, packages in file_to_packages.items():
         stem = Path(proto_file).stem
+
+        subdir = tpl_dir / stem
+        subdir.mkdir(parents=True, exist_ok=True)
+
         out[proto_file] = {}
 
         for tpl_name, out_name in TEMPLATE.items():
-            base = out_name.replace(".cpp", "").replace(".h", "")
-            if out_name.endswith(".cpp"):
-                gen = tpl_dir / f"{stem}.{base}.cpp"
-            else:
-                gen = tpl_dir / f"{stem}.{base}.h"
+            gen = subdir / out_name
 
             template = env.get_template(tpl_name)
             rendered = template.render(

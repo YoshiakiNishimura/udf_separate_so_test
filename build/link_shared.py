@@ -120,6 +120,7 @@ def link_one_shared(
     proto_to_libfile: Dict[str, str],
     extra_ldflags: list[str],
     cxx: str,
+    extra_objs: list[Path] | None = None,
     common_static: Path | None = None,
 ) -> None:
     objs = obj_paths_for_proto(proto_name, obj_dir)
@@ -127,7 +128,8 @@ def link_one_shared(
         raise RuntimeError(
             f"no object files found for proto: {proto_name} (expected under {obj_dir})"
         )
-
+    if extra_objs:
+        objs = objs + [p for p in extra_objs if p.exists()]
     lib_dir.mkdir(parents=True, exist_ok=True)
     out_lib_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -140,7 +142,6 @@ def link_one_shared(
 
     cmd = [cxx, "-shared", "-o", str(out_lib_path)]
     cmd += [str(o) for o in objs]
-
     if common_static is not None:
         common_static = Path(common_static)
         if not common_static.exists():
@@ -171,6 +172,7 @@ def build_shared_libs_layered_parallel(
     lib_dir: Path,
     exclude_protos: Set[str] | None = None,
     jobs: int | None = None,
+    tpl_objs_by_stem: dict[str, list[Path]] | None = None,
     common_static: Path | None = None,
 ) -> Dict[str, Path]:
     exclude_protos = exclude_protos or set()
@@ -199,6 +201,8 @@ def build_shared_libs_layered_parallel(
         def _job(pn: str) -> Tuple[str, Path]:
             out = lib_dir / proto_to_libfile[pn]
             deps = sorted(lib_dep_graph.get(pn, ()))
+            stem = Path(pn).stem
+            extra_objs = (tpl_objs_by_stem or {}).get(stem, [])
             link_one_shared(
                 proto_name=pn,
                 out_lib_path=out,
@@ -208,6 +212,7 @@ def build_shared_libs_layered_parallel(
                 proto_to_libfile=proto_to_libfile,
                 extra_ldflags=extra,
                 cxx=cxx,
+                extra_objs=extra_objs,
                 common_static=common_static,
             )
             return pn, out
