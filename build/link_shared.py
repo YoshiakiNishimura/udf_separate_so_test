@@ -120,6 +120,7 @@ def link_one_shared(
     proto_to_libfile: Dict[str, str],
     extra_ldflags: list[str],
     cxx: str,
+    common_static: Path | None = None,
 ) -> None:
     objs = obj_paths_for_proto(proto_name, obj_dir)
     if not objs:
@@ -133,12 +134,18 @@ def link_one_shared(
     dep_lib_args: list[str] = []
     for d in deps:
         libfile = proto_to_libfile[d]
-        dep_lib_args.append(f"-l:{libfile}") 
+        dep_lib_args.append(f"-l:{libfile}")
 
     rpath_flag = "-Wl,-rpath,$ORIGIN"
 
     cmd = [cxx, "-shared", "-o", str(out_lib_path)]
     cmd += [str(o) for o in objs]
+
+    if common_static is not None:
+        common_static = Path(common_static)
+        if not common_static.exists():
+            raise RuntimeError(f"common static archive not found: {common_static}")
+        cmd += [str(common_static)]
 
     cmd += [f"-L{lib_dir}"]
     cmd += dep_lib_args
@@ -164,6 +171,7 @@ def build_shared_libs_layered_parallel(
     lib_dir: Path,
     exclude_protos: Set[str] | None = None,
     jobs: int | None = None,
+    common_static: Path | None = None,
 ) -> Dict[str, Path]:
     exclude_protos = exclude_protos or set()
 
@@ -200,6 +208,7 @@ def build_shared_libs_layered_parallel(
                 proto_to_libfile=proto_to_libfile,
                 extra_ldflags=extra,
                 cxx=cxx,
+                common_static=common_static,
             )
             return pn, out
 

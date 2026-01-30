@@ -50,8 +50,7 @@ def run(argv=None):
     cmd = build_protoc_cmd(includes, proto_files, desc_pb, GEN, grpc_plugin)
     run_protoc(cmd)
 
-    # ---- compile .o in parallel ----
-    include_dirs = [str(GEN)] + includes  # GEN is required for generated headers
+    include_dirs = [str(GEN)] + includes
     jobs = int(os.environ.get("JOBS", "0")) or None
 
     fds = load_fds(desc_pb)
@@ -107,6 +106,7 @@ def run(argv=None):
         lib_dir=LIB,
         exclude_protos=exclude_protos,
         jobs=jobs,
+        common_static=common_a,
     )
     print(f"# linked libs: {len(outputs)}")
 
